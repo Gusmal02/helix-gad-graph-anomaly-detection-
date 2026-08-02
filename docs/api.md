@@ -1,10 +1,10 @@
-# Referencia de API — Helix
+# API Reference — Helix
 
 ---
 
 ## `helix.HelixFramework`
 
-Clase principal. Orquesta selección de modelo, entrenamiento, inferencia y métricas.
+Main class. Orchestrates model selection, training, inference, and metrics.
 
 ```python
 from helix import HelixFramework
@@ -21,105 +21,105 @@ HelixFramework(
 )
 ```
 
-| Parámetro | Descripción |
+| Parameter | Description |
 |-----------|-------------|
-| `helix_hidden` | Dimensión de la capa oculta del MLP de emisión en Helix |
-| `helix_k` | Orden K del polinomio de Chebyshev (profundidad espectral) |
-| `helix_t` | Número de pasos del loop de rotores |
-| `gnn_hidden` | Dimensión oculta para SAGE y GCN cuando el Validator los selecciona |
+| `helix_hidden` | Hidden dimension of the Helix emission MLP |
+| `helix_k` | Chebyshev polynomial order (spectral depth) |
+| `helix_t` | Number of rotor loop steps |
+| `gnn_hidden` | Hidden dimension for SAGE and GCN when selected by the Validator |
 
 ---
 
 ### `.fit(X, edge_index, labels, model='auto', cfg=None, edge_weight=None)`
 
-Entrena el framework. Retorna `self` para encadenamiento.
+Trains the framework. Returns `self` for chaining.
 
-**Parámetros:**
+**Parameters:**
 
-| Nombre | Tipo | Descripción |
-|--------|------|-------------|
-| `X` | `np.ndarray (N, D)` | Features de nodos, float32 |
-| `edge_index` | `np.ndarray (2, E)` | Aristas del grafo, int64 |
-| `labels` | `np.ndarray (N,)` | 1=anomalía, 0=normal, -1=sin etiqueta |
-| `model` | `str` | `'auto'` deja que el Validator elija; o fuerza `'HELIX'` / `'SAGE'` / `'GCN'` / `'MLP'` |
-| `cfg` | `TrainConfig` | Configuración de entrenamiento (ver sección TrainConfig) |
-| `edge_weight` | `np.ndarray (E,)` | Pesos de aristas; uniforme si `None` |
+| Name | Type | Description |
+|------|------|-------------|
+| `X` | `np.ndarray (N, D)` | Node features, float32 |
+| `edge_index` | `np.ndarray (2, E)` | Graph edges, int64 |
+| `labels` | `np.ndarray (N,)` | 1=anomaly, 0=normal, -1=unlabeled |
+| `model` | `str` | `'auto'` lets the Validator choose; or force `'HELIX'` / `'SAGE'` / `'GCN'` / `'MLP'` |
+| `cfg` | `TrainConfig` | Training configuration (see TrainConfig section) |
+| `edge_weight` | `np.ndarray (E,)` | Edge weights; uniform if `None` |
 
-**Comportamiento interno:**
-- Siempre entrena el modelo Helix (requerido por `explain()` y `nexus()`).
-- Si el Validator elige un modelo distinto a Helix, lo entrena adicionalmente.
-- `predict()` usa el modelo ganador; `explain()` y `nexus()` siempre usan Helix.
+**Internal behavior:**
+- Always trains the Helix model (required by `explain()` and `nexus()`).
+- If the Validator selects a different model, it is trained additionally.
+- `predict()` uses the winning model; `explain()` and `nexus()` always use Helix.
 
 ---
 
 ### `.predict(X, edge_index, edge_weight=None)` → `np.ndarray (N,)`
 
-Inferencia rápida. Usa **Laser Query** cuando el modelo activo es Helix (1 paso FNO en lugar de T=5 pasos), o el forward estándar para SAGE/GCN/MLP.
+Fast inference. Uses **Laser Query** when the active model is Helix (1 FNO step instead of T=5 rotor steps), or the standard forward pass for SAGE/GCN/MLP.
 
-Retorna scores en `[0, 1]` vía sigmoid.
+Returns scores in `[0, 1]` via sigmoid.
 
 ---
 
 ### `.explain(X, edge_index, edge_weight=None, labels=None)` → `ExplainResult`
 
-Loop completo de Helix con cálculo de métricas geométricas.
+Full Helix forward pass with geometric metric computation.
 
-**Retorna `ExplainResult` con campos:**
+**Returns `ExplainResult` with fields:**
 
-| Campo | Tipo | Descripción |
+| Field | Type | Description |
 |-------|------|-------------|
-| `scores` | `ndarray (N,)` | Probabilidades de anomalía del modelo ganador |
-| `rho` | `ndarray (N,)` | ρ = ‖q_imag‖ — inestabilidad local |
-| `eta` | `ndarray (N,)` | η = q_real — alineación con identidad |
-| `geo_dist` | `ndarray (N,)` | arccos(\|q_w\|) — distancia geodésica en S³ |
-| `model_used` | `str` | Modelo que generó `scores` |
-| `confidence` | `str` | `'ALTA'` o `'MEDIA'` del Validator (`None` si `model` fue forzado) |
-| `q_final` | `ndarray (N, 4)` | Quaterniones finales en S³ |
+| `scores` | `ndarray (N,)` | Anomaly probabilities from the winning model |
+| `rho` | `ndarray (N,)` | ρ = ‖q_imag‖ — local instability |
+| `eta` | `ndarray (N,)` | η = q_real — identity alignment |
+| `geo_dist` | `ndarray (N,)` | arccos(\|q_w\|) — geodesic distance in S³ |
+| `model_used` | `str` | Model that generated `scores` |
+| `confidence` | `str` | `'HIGH'` or `'MEDIUM'` from the Validator (`None` if model was forced) |
+| `q_final` | `ndarray (N, 4)` | Final quaternions in S³ |
 
-**Advertencias emitidas:**
-- `UserWarning` si E/N > 10: métricas geométricas menos confiables en grafos densos.
-- `UserWarning` si σ_seeds ≥ 0.025: Helix inestable en este dominio.
+**Warnings emitted:**
+- `UserWarning` if E/N > 10: geometric metrics are less reliable on dense graphs.
+- `UserWarning` if σ_seeds ≥ 0.025: Helix is unstable on this domain.
 
 ---
 
 ### `.nexus(X, edge_index, confirmed, alpha=2.0, edge_weight=None)` → `np.ndarray (N,)`
 
-Scorer gravitatorio semi-supervisado. No re-entrena.
+Gravitational semi-supervised scorer. Does not retrain.
 
-**Parámetros:**
+**Parameters:**
 
-| Nombre | Tipo | Descripción |
-|--------|------|-------------|
-| `confirmed` | `list[int]` | Índices de nodos confirmados como anómalos |
-| `alpha` | `float` | Tasa de decaimiento geodésico. Más alto = score más concentrado cerca de confirmados |
+| Name | Type | Description |
+|------|------|-------------|
+| `confirmed` | `list[int]` | Indices of nodes confirmed as anomalous |
+| `alpha` | `float` | Geodesic decay rate. Higher = scores more concentrated near confirmed nodes |
 
-**Fórmula:**
+**Formula:**
 ```
 nexus(j) = Σ_{i ∈ confirmed} exp(-α · arccos(|⟨q_i, q_j⟩|)) / |confirmed|
 ```
 
-Retorna scores en `[0, 1]`.
+Returns scores in `[0, 1]`.
 
 ---
 
 ### `.validate(X, edge_index, labels)` → `ValidationReport`
 
-Diagnóstico estructural + probe rápido. No modifica el estado del framework.
+Structural diagnostics + quick probe. Does not modify framework state.
 
-**Retorna `ValidationReport` con campos:**
+**Returns `ValidationReport` with fields:**
 
-| Campo | Tipo | Descripción |
+| Field | Type | Description |
 |-------|------|-------------|
-| `recommended_model` | `str` | `'HELIX'`, `'SAGE'`, `'GCN'` o `'MLP'` |
-| `confidence` | `str` | `'ALTA'` o `'MEDIA'` |
-| `reason` | `str` | Regla que activó la decisión y valores numéricos |
-| `sigma_seeds` | `float` | σ inter-seeds del probe (3 seeds × 100 épocas) |
-| `graph_density` | `float` | E/N — aristas por nodo |
-| `gini` | `float` | Coeficiente de Gini del grado. > 0.6 indica hub-and-spoke |
-| `homophily` | `float` | Fracción de aristas entre nodos del mismo label |
-| `helix_auc_mean` | `float` | AUC media de Helix en el probe |
-| `helix_auc_std` | `float` | σ de AUC (= `sigma_seeds`) |
-| `mlp_auc` | `float` | AUC del MLP de referencia |
+| `recommended_model` | `str` | `'HELIX'`, `'SAGE'`, `'GCN'`, or `'MLP'` |
+| `confidence` | `str` | `'HIGH'` or `'MEDIUM'` |
+| `reason` | `str` | Rule that triggered the decision with numeric values |
+| `sigma_seeds` | `float` | Inter-seed AUC std of the probe (3 seeds × 100 epochs) |
+| `graph_density` | `float` | E/N — edges per node |
+| `gini` | `float` | Degree Gini coefficient. > 0.6 indicates hub-and-spoke |
+| `homophily` | `float` | Fraction of edges between same-label nodes |
+| `helix_auc_mean` | `float` | Mean Helix AUC from the probe |
+| `helix_auc_std` | `float` | AUC std (= `sigma_seeds`) |
+| `mlp_auc` | `float` | Reference MLP AUC |
 | `lift` | `float` | `helix_auc_mean - mlp_auc` |
 
 ---
@@ -130,35 +130,35 @@ Diagnóstico estructural + probe rápido. No modifica el estado del framework.
 from helix.trainer import TrainConfig
 ```
 
-| Campo | Por defecto | Descripción |
-|-------|-------------|-------------|
-| `epochs` | `200` | Épocas de entrenamiento |
+| Field | Default | Description |
+|-------|---------|-------------|
+| `epochs` | `200` | Training epochs |
 | `lr` | `1e-3` | Learning rate (Adam) |
-| `weight_decay` | `0.0` | Regularización L2 |
-| `grad_clip` | `1.0` | Clip de norma del gradiente. Previene explosión en el loop de rotores |
-| `pos_weight` | `None` | Peso de la clase positiva en `BCEWithLogitsLoss`. Auto-calculado si `None` (= neg/pos) |
-| `seed` | `42` | Semilla para reproducibilidad |
-| `verbose` | `False` | Imprime loss cada `log_every` épocas |
-| `log_every` | `50` | Frecuencia de logging si `verbose=True` |
+| `weight_decay` | `0.0` | L2 regularization |
+| `grad_clip` | `1.0` | Gradient norm clipping. Prevents explosion in the rotor loop |
+| `pos_weight` | `None` | Positive class weight in `BCEWithLogitsLoss`. Auto-computed if `None` (= neg/pos ratio) |
+| `seed` | `42` | Reproducibility seed |
+| `verbose` | `False` | Logs loss every `log_every` epochs |
+| `log_every` | `50` | Logging frequency when `verbose=True` |
 
 ---
 
 ## `helix.metrics`
 
-Funciones de métricas geométricas. Operan directamente sobre `q_final (N, 4)`.
+Geometric metric functions. Operate directly on `q_final (N, 4)`.
 
 ```python
 from helix.metrics import rho, eta, geo_distance, geo_flag, best_f1_geo, sigma_seeds
 ```
 
-| Función | Entrada | Salida | Descripción |
-|---------|---------|--------|-------------|
+| Function | Input | Output | Description |
+|----------|-------|--------|-------------|
 | `rho(q)` | `(N,4)` | `(N,)` | ρ = ‖q_imag‖ |
 | `eta(q)` | `(N,4)` | `(N,)` | η = q_real |
-| `geo_distance(q)` | `(N,4)` | `(N,)` | arccos(\|q_w\|) — distancia a identidad en S³ |
-| `geo_flag(q, theta)` | `(N,4), float` | `(N,)` bool | `True` donde dist > theta |
-| `best_f1_geo(q, labels)` | `(N,4), (N,)` | `(float, float)` | Mejor F1_geo y θ óptimo |
-| `sigma_seeds(auc_list)` | `list[float]` | `float` | Desviación estándar inter-seeds |
+| `geo_distance(q)` | `(N,4)` | `(N,)` | arccos(\|q_w\|) — distance to identity in S³ |
+| `geo_flag(q, theta)` | `(N,4), float` | `(N,)` bool | `True` where dist > theta |
+| `best_f1_geo(q, labels)` | `(N,4), (N,)` | `(float, float)` | Best F1_geo and optimal θ |
+| `sigma_seeds(auc_list)` | `list[float]` | `float` | Inter-seed standard deviation |
 
 ---
 
@@ -168,16 +168,16 @@ from helix.metrics import rho, eta, geo_distance, geo_flag, best_f1_geo, sigma_s
 from helix.nexus import nexus_score, nexus_score_normalized
 ```
 
-| Función | Descripción |
-|---------|-------------|
-| `nexus_score(q_final, confirmed_idx, alpha)` | Score crudo — rango `[0, len(confirmed)]` |
-| `nexus_score_normalized(q_final, confirmed_idx, alpha)` | Score normalizado — rango `[0, 1]` |
+| Function | Description |
+|----------|-------------|
+| `nexus_score(q_final, confirmed_idx, alpha)` | Raw score — range `[0, len(confirmed)]` |
+| `nexus_score_normalized(q_final, confirmed_idx, alpha)` | Normalized score — range `[0, 1]` |
 
 ---
 
 ## `helix.models`
 
-Los modelos se pueden usar directamente sin el framework.
+Models can be used directly without the framework.
 
 ```python
 from helix.models.helix import HelixModel
@@ -186,22 +186,22 @@ from helix.models.gcn   import GCNModel
 from helix.models.mlp   import MLPModel
 ```
 
-Todos comparten la misma firma de `forward`:
+All share the same `forward` signature:
 
 ```python
 model(x: Tensor, edge_index: Tensor, edge_weight: Tensor | None = None)
 ```
 
-- **HelixModel** retorna `(logits (N,1), q_final (N,4))`
-- El resto retorna `logits (N,1)`
+- **HelixModel** returns `(logits (N,1), q_final (N,4))`
+- All others return `logits (N,1)`
 
-`HelixModel` incluye además `.laser_query(x, edge_index, edge_weight)` → `logits (N,1)`.
+`HelixModel` also exposes `.laser_query(x, edge_index, edge_weight)` → `logits (N,1)`.
 
 ---
 
 ## `helix.core`
 
-Primitivas reutilizables.
+Reusable primitives.
 
 ```python
 from helix.core.rotors    import quat_normalize, quat_exp, quat_mul, quat_rotate, RotorStep
@@ -210,16 +210,16 @@ from helix.core.laplacian import normalized_laplacian
 from helix.core.graph     import edge_density, degree_gini, label_homophily, graph_stats
 ```
 
-| Función / Clase | Descripción |
-|----------------|-------------|
-| `quat_normalize(q)` | Normaliza a ‖q‖=1 |
-| `quat_exp(v)` | Exponencial cuaterniónica de vector puro v∈R³ → q∈S³ |
-| `quat_mul(q1, q2)` | Producto de Hamilton |
-| `quat_rotate(q, v)` | Rotación v'= q v q* |
-| `RotorStep` | Módulo nn — un paso del loop de rotores (sin .detach()) |
-| `ChebyshevFNO` | Operador espectral Chebyshev sobre campo 3D |
-| `normalized_laplacian(edge_index, edge_weight, N)` | Retorna (L_tilde, lambda_max). Soporta grafos dirigidos |
+| Function / Class | Description |
+|-----------------|-------------|
+| `quat_normalize(q)` | Normalizes to ‖q‖=1 |
+| `quat_exp(v)` | Quaternion exponential of pure vector v∈R³ → q∈S³ |
+| `quat_mul(q1, q2)` | Hamilton product |
+| `quat_rotate(q, v)` | Rotation v' = q v q* |
+| `RotorStep` | nn.Module — one rotor loop step (no .detach()) |
+| `ChebyshevFNO` | Chebyshev spectral operator over a 3D vector field |
+| `normalized_laplacian(edge_index, edge_weight, N)` | Returns (L_tilde, lambda_max). Supports directed graphs |
 | `edge_density(ei, N)` | E/N |
-| `degree_gini(ei, N)` | Coeficiente de Gini del grado |
-| `label_homophily(ei, labels)` | Fracción de aristas homofílicas |
-| `graph_stats(ei, N, labels)` | Dict con density, gini, homophily |
+| `degree_gini(ei, N)` | Degree Gini coefficient |
+| `label_homophily(ei, labels)` | Fraction of homophilic edges |
+| `graph_stats(ei, N, labels)` | Dict with density, gini, homophily |
