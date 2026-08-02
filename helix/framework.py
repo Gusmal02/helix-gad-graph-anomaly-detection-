@@ -180,7 +180,10 @@ class HelixFramework:
             else:
                 out = self._best_model(X_t, ei_t, ew_t)
                 logits = out[0] if isinstance(out, tuple) else out
-            return torch.sigmoid(logits.squeeze(-1)).numpy()
+            scores = torch.sigmoid(logits.squeeze(-1)).numpy()
+        if getattr(self._best_model, '_polarity_flipped', False):
+            scores = 1.0 - scores
+        return scores
 
     # ── explain ────────────────────────────────────────────────────────────────
 
@@ -218,8 +221,12 @@ class HelixFramework:
                 out = self._best_model(X_t, ei_t, ew_t)
                 logits_best = out[0] if isinstance(out, tuple) else out
             scores = torch.sigmoid(logits_best.squeeze(-1)).numpy()
+            if getattr(self._best_model, '_polarity_flipped', False):
+                scores = 1.0 - scores
         else:
             scores = torch.sigmoid(logits_h.squeeze(-1)).numpy()
+            if getattr(self._helix_model, '_polarity_flipped', False):
+                scores = 1.0 - scores
 
         conf = self._validation_report.confidence if self._validation_report else None
 

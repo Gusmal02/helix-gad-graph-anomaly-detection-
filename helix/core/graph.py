@@ -42,6 +42,36 @@ def label_homophily(edge_index: torch.Tensor, labels: torch.Tensor) -> float:
     return float(same)
 
 
+def sparsify_top_k(
+    edge_index: torch.Tensor,
+    edge_weight: torch.Tensor | None = None,
+    k: int = 10,
+    num_nodes: int | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Keep at most k neighbours per node (highest edge weight, or arbitrary if uniform).
+    Reduces effective E/N before FNO propagation, preventing over-smoothing in dense graphs.
+
+    Returns (sparse_edge_index, sparse_edge_weight).
+    """
+    N = num_nodes or int(edge_index.max().item()) + 1
+    src, dst = edge_index
+    ew = edge_weight if edge_weight is not None else torch.ones(src.shape[0])
+
+    keep = torch.zeros(src.shape[0], dtype=torch.bool)
+    for node in range(N):
+        mask = src == node
+        idx  = mask.nonzero(as_tuple=True)[0]
+        if idx.numel() <= k:
+            keep[idx] = True
+        else:
+            weights = ew[idx]
+            top_k   = weights.topk(k).indices
+            keep[idx[top_k]] = True
+
+    return edge_index[:, keep], ew[keep]
+
+
 def graph_stats(
     edge_index: torch.Tensor,
     num_nodes: int,

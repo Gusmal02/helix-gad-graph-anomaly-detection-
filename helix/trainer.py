@@ -116,6 +116,14 @@ def train(
     y_val = labels[val_idx].numpy()
     auc = float(roc_auc_score(y_val, scores))
 
+    # Polarity guard: if model learned inverted signal, flip scores.
+    # Caused by aggressive pos_weight + gradient saturation in dense graphs.
+    if auc < 0.5:
+        auc = 1.0 - auc
+        model._polarity_flipped = True
+    else:
+        model._polarity_flipped = False
+
     return TrainResult(auc=auc, loss_history=loss_history, epochs_run=cfg.epochs)
 
 

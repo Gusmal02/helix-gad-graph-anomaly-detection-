@@ -31,17 +31,29 @@ class ChebyshevFNO(nn.Module):
     """
     Learnable Chebyshev field operator over a 3D vector field.
     One independent theta vector per channel.
+
+    residual_mix: if True, output is α·Φ_propagated + (1−α)·x_local where α
+    is a learned sigmoid parameter. Prevents over-smoothing in dense graphs —
+    the model learns to down-weight neighbour signals when they add noise.
     """
 
-    def __init__(self, order: int = 4, num_channels: int = 3):
+    def __init__(self, order: int = 4, num_channels: int = 3, residual_mix: bool = True):
         super().__init__()
         self.order = order
         self.num_channels = num_channels
+        self.residual_mix = residual_mix
         self.thetas = nn.Parameter(torch.randn(order + 1, num_channels) * 0.1)
+        if residual_mix:
+            # initialise near 0.9 so sparse-graph behaviour is preserved by default
+            self.alpha_logit = nn.Parameter(torch.tensor(2.2))
 
     def forward(self, x: torch.Tensor, L_tilde: torch.Tensor) -> torch.Tensor:
         """x: (N, 3), L_tilde: sparse scaled Laplacian. Returns (N, 3)."""
-        return torch.cat([
+        propagated = torch.cat([
             chebyshev_propagate(L_tilde, x[:, c:c+1], self.thetas[:, c])
             for c in range(self.num_channels)
         ], dim=-1)
+        if self.residual_mix:
+            alpha = torch.sigmoid(self.alpha_logit)
+            return alpha * propagated + (1.0 - alpha) * x
+        return propagated
