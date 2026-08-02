@@ -165,13 +165,49 @@ from helix.metrics import rho, eta, geo_distance, geo_flag, best_f1_geo, sigma_s
 ## `helix.nexus`
 
 ```python
-from helix.nexus import nexus_score, nexus_score_normalized
+from helix.nexus import nexus_score, nexus_score_normalized, sonar_score, sonar_score_normalized
 ```
 
-| Function | Description |
-|----------|-------------|
-| `nexus_score(q_final, confirmed_idx, alpha)` | Raw score — range `[0, len(confirmed)]` |
-| `nexus_score_normalized(q_final, confirmed_idx, alpha)` | Normalized score — range `[0, 1]` |
+### NEXUS — S³ gravitational scorer
+
+Propagates risk from confirmed anomalous seeds through the quaternion manifold without retraining.
+
+**Formula:** `nexus(j) = Σ_{i∈confirmed} exp(−α · arccos(|⟨q_i, q_j⟩|))`
+
+| Function | Parameters | Returns | Description |
+|----------|-----------|---------|-------------|
+| `nexus_score(q_final, confirmed_idx, alpha=2.0)` | `(N,4), list[int], float\|'auto'` | `(N,)` | Raw scores in `[0, len(confirmed)]` |
+| `nexus_score_normalized(q_final, confirmed_idx, alpha=2.0)` | same | `(N,)` | Scores in `[0, 1]` |
+
+**`alpha` parameter:**
+- `float` — fixed geodesic decay rate. Higher values concentrate scores near seeds.
+- `'auto'` — calibrates as `1 / median_geo_dist(seeds, all_nodes)`. Domain-agnostic; recommended when you don't know the typical S³ spread of your graph.
+
+### SONAR — multi-hop extension
+
+Combines S³ proximity (NEXUS) with BFS hop distance for sharper propagation boundaries.
+
+**Formula:** `sonar(j) = nexus_normalized(j) · hop_decay^min_hops(j)`
+
+Nodes that are **both** geometrically close in S³ **and** few hops from a seed score highest.
+
+| Function | Parameters | Returns | Description |
+|----------|-----------|---------|-------------|
+| `sonar_score(q_final, edge_index, confirmed_idx, alpha=2.0, max_hops=4, hop_decay=0.6)` | `(N,4), (2,E), list[int], ...` | `(N,)` | Scores in `[0, 1]` (max-normalized) |
+| `sonar_score_normalized(...)` | same | `(N,)` | Alias for `sonar_score` |
+
+**Parameters:**
+- `max_hops` — BFS depth limit; nodes unreachable within `max_hops` receive `hop_decay^max_hops` penalty.
+- `hop_decay` — multiplier per hop (0 < hop_decay ≤ 1). Default `0.6` attenuates by 40% per hop.
+- `alpha` — accepts `'auto'` same as NEXUS.
+
+### When to use NEXUS vs SONAR
+
+| Scenario | Use |
+|---------|-----|
+| Dense graph, many confirmed seeds | NEXUS — hop topology less informative |
+| Sparse graph, few seeds, fraud clusters | SONAR — hop structure helps isolate clusters |
+| Unknown graph regime | Try both; SONAR subsumes NEXUS when `hop_decay=1.0` |
 
 ---
 
@@ -223,3 +259,4 @@ from helix.core.graph     import edge_density, degree_gini, label_homophily, gra
 | `degree_gini(ei, N)` | Degree Gini coefficient |
 | `label_homophily(ei, labels)` | Fraction of homophilic edges |
 | `graph_stats(ei, N, labels)` | Dict with density, gini, homophily |
+| `sparsify_top_k(edge_index, edge_weight, k=10, num_nodes)` | Keep top-k neighbours per node by edge weight; reduces E/N before FNO propagation to prevent over-smoothing |
