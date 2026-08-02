@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "helix-gad"
+version = "0.1.0"
+description = "Graph anomaly detection in S³ — HELIX + NEXUS + Graph Validator"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0",
+    "numpy>=1.24",
+    "scikit-learn>=1.3",
+    "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: full training run (>30s). Run with: pytest -m slow",
+]
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["helix"]
