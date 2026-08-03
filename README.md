@@ -1,5 +1,7 @@
 # Helix
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Graph anomaly detection framework operating in the unit quaternion sphere S³.
 
 Designed for financial fraud and domains with real causal graphs (transactions, transfers, network flows). Features automatic model selection, native geometric interpretability metrics, and semi-supervised scoring without retraining.

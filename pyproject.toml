@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "helix-gad"
 version = "0.1.0"
 description = "Graph anomaly detection in S³ — HELIX + NEXUS + Graph Validator"
+license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.0",
