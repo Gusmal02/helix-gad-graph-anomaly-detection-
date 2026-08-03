@@ -44,14 +44,17 @@ import numpy as np
 from helix import HelixFramework
 from helix.trainer import TrainConfig
 
-# Data: node features, transaction graph, binary labels
 fw = HelixFramework()
 fw.fit(X, edge_index, labels)           # Graph Validator selects the best model
 
 scores = fw.predict(X, edge_index)      # fast inference (Laser Query)
 result = fw.explain(X, edge_index)      # full loop + geometric metrics
-nexus  = fw.nexus(X, edge_index, confirmed=[12, 45, 891])  # semi-supervised propagation
-report = fw.validate(X, edge_index, labels)                # domain diagnostics
+nexus  = fw.nexus(X, edge_index, confirmed=[12, 45, 891])   # S³ proximity scorer
+sonar  = fw.sonar(X, edge_index, confirmed=[12, 45, 891])   # S³ + hop-distance scorer
+report = fw.validate(X, edge_index, labels)                 # domain diagnostics
+
+fw.save("model.pt")                     # persist to disk
+fw2 = HelixFramework.load("model.pt")  # reload
 ```
 
 Full example: [`examples/quick_start.py`](examples/quick_start.py)
@@ -64,16 +67,17 @@ Full example: [`examples/quick_start.py`](examples/quick_start.py)
 
 ```python
 HelixFramework(
-    helix_hidden = 16,   # emission MLP hidden dimension
-    helix_k      = 4,    # Chebyshev polynomial order
-    helix_t      = 5,    # rotor loop steps
-    gnn_hidden   = 64,   # hidden dimension for SAGE/GCN
+    helix_hidden = 16,       # emission MLP hidden dimension
+    helix_k      = 4,        # Chebyshev polynomial order
+    helix_t      = 5,        # rotor loop steps
+    gnn_hidden   = 64,       # hidden dimension for SAGE/GCN
+    directed     = False,    # use random-walk Laplacian for directed graphs
 )
 ```
 
-#### `.fit(X, edge_index, labels, model='auto', cfg=None)`
+#### `.fit(X, edge_index, labels, model='auto', cfg=None, edge_weight=None, auto_pca=None)`
 
-Trains the framework. With `model='auto'`, the Graph Validator runs a quick probe (100 epochs × 3 seeds) and selects the optimal model. Always trains Helix internally — required for `explain()` and `nexus()`.
+Trains the framework. With `model='auto'`, the Graph Validator runs a quick probe (100 epochs × 3 seeds) and selects the optimal model. Always trains Helix internally — required for `explain()`, `nexus()`, and `sonar()`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -82,6 +86,8 @@ Trains the framework. With `model='auto'`, the Graph Validator runs a quick prob
 | `labels` | `ndarray (N,)` | Binary: 1=anomaly, 0=normal, -1=unlabeled |
 | `model` | `str` | `'auto'` or force `'HELIX'` / `'SAGE'` / `'GCN'` / `'MLP'` |
 | `cfg` | `TrainConfig` | Training hyperparameters |
+| `edge_weight` | `ndarray (E,)` | Optional edge weights; uniform if `None` |
+| `auto_pca` | `int \| None` | If set, reduce features to this many PCA components before training (e.g. `auto_pca=20`). Components are saved and applied automatically at inference time. |
 
 #### `.predict(X, edge_index)` → `ndarray (N,)`
 
@@ -93,9 +99,10 @@ Full Helix forward pass with geometric metrics. Always uses the Helix model for 
 
 ```python
 result.scores    # (N,) anomaly probabilities
-result.rho       # (N,) imaginary norm — local instability
-result.eta       # (N,) scalar part — identity alignment
-result.geo_dist  # (N,) geodesic distance from identity quaternion
+result.rho       # (N,) ‖q_imag‖ — local instability
+result.eta       # (N,) q_real — identity alignment
+result.geo_dist  # (N,) arccos(|q_w|) — geodesic distance from identity
+result.torque    # (N,) ‖τ‖ — torque magnitude (geometric gradient signal)
 result.model_used   # model selected by the Validator
 result.confidence   # 'HIGH' or 'MEDIUM'
 result.q_final   # (N, 4) final quaternions in S³
@@ -105,13 +112,32 @@ result.q_final   # (N, 4) final quaternions in S³
 
 #### `.nexus(X, edge_index, confirmed, alpha=2.0)` → `ndarray (N,)`
 
-Gravitational semi-supervised scorer. Given confirmed anomalous nodes, propagates a risk score through S³ proximity without retraining.
+Gravitational semi-supervised scorer. Propagates risk from confirmed anomalous seeds through S³ proximity without retraining.
 
 ```
 nexus(j) = Σ_{i ∈ confirmed} exp(-α · arccos(|⟨q_i, q_j⟩|))
 ```
 
-`alpha` controls the decay rate: higher values concentrate scores near confirmed nodes.
+`alpha` controls the decay rate. Set `alpha='auto'` to calibrate from data as `1 / median_geo_dist(seeds, all_nodes)` — recommended when the typical S³ spread of the graph is unknown.
+
+#### `.sonar(X, edge_index, confirmed, alpha=2.0, max_hops=4, hop_decay=0.6)` → `ndarray (N,)`
+
+Extends NEXUS by combining S³ proximity with BFS hop distance. Nodes that are **both** geometrically close in S³ **and** few hops from a confirmed seed score highest — giving sharper propagation boundaries in sparse fraud clusters.
+
+```
+sonar(j) = nexus_normalized(j) · hop_decay^min_hops(j)
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `alpha` | Geodesic decay rate, or `'auto'` |
+| `max_hops` | BFS depth limit; nodes beyond this receive `hop_decay^max_hops` penalty |
+| `hop_decay` | Multiplier per hop (0 < hop_decay ≤ 1). Default 0.6 attenuates 40% per hop |
+
+**When to use NEXUS vs SONAR:**
+- Dense graph, many confirmed seeds → NEXUS (hop topology less informative)
+- Sparse graph, few seeds, fraud clusters → SONAR (hop structure isolates clusters)
+- Try both; SONAR subsumes NEXUS when `hop_decay=1.0`
 
 #### `.validate(X, edge_index, labels)` → `ValidationReport`
 
@@ -127,6 +153,16 @@ report.gini                # degree Gini coefficient
 report.homophily           # fraction of edges between same-label nodes
 report.helix_auc_mean      # mean Helix AUC from the probe
 report.lift                # HELIX AUC − MLP AUC
+```
+
+#### `.save(path)` / `HelixFramework.load(path)`
+
+Persist a trained framework to disk and reload it. Saves model weights, hyperparameters, PCA components (if `auto_pca` was used), and the validation report.
+
+```python
+fw.save("helix_elliptic.pt")
+fw2 = HelixFramework.load("helix_elliptic.pt")
+scores = fw2.predict(X_new, edge_index_new)
 ```
 
 ---
@@ -159,6 +195,7 @@ Linear(3 → 1)                        classification logit
 - **ρ = ‖q_imag‖** — local node instability
 - **η = q_real** — alignment with identity rotor
 - **dist_geo = arccos(|q_w|)** — deviation in S³
+- **‖τ‖** — torque magnitude; high values indicate strong structural displacement
 
 ---
 
@@ -178,17 +215,22 @@ Empirical accuracy: **4/4 domains** (Elliptic, AMLSim, PaySim, Electricity).
 
 ---
 
-## NEXUS — Semi-Supervised Mode
+## NEXUS & SONAR — Semi-Supervised Mode
 
-Useful when only a few confirmed fraud cases are available and the goal is to expand the investigation without retraining. Helix maps each node to a point in S³; NEXUS measures how close each node is to the confirmed cases in that space.
+Useful when only a few confirmed fraud cases are available and the goal is to expand the investigation without retraining.
 
 ```python
-# 5 accounts confirmed as fraudulent by operations
 confirmed = [42, 107, 891, 234, 56]
-risk = fw.nexus(X, edge_index, confirmed=confirmed, alpha=2.0)
+
+# NEXUS: S³ geodesic proximity only
+risk_nexus = fw.nexus(X, edge_index, confirmed=confirmed, alpha='auto')
+
+# SONAR: S³ proximity + hop distance (recommended for sparse fraud clusters)
+risk_sonar = fw.sonar(X, edge_index, confirmed=confirmed,
+                      alpha='auto', max_hops=4, hop_decay=0.6)
 
 # Top-100 highest-risk nodes for investigation
-candidates = np.argsort(risk)[-100:]
+candidates = np.argsort(risk_sonar)[-100:]
 ```
 
 ---
@@ -199,15 +241,33 @@ candidates = np.argsort(risk)[-100:]
 from helix.trainer import TrainConfig
 
 cfg = TrainConfig(
-    epochs       = 200,    # training epochs
-    lr           = 1e-3,   # Adam learning rate
-    weight_decay = 0.0,    # L2 regularization
-    grad_clip    = 1.0,    # gradient norm clipping (prevents explosion in rotor loop)
-    pos_weight   = None,   # positive class weight; auto-computed if None (= neg/pos ratio)
-    seed         = 42,
-    verbose      = False,
-    log_every    = 50,
+    epochs        = 200,    # training epochs
+    lr            = 1e-3,   # Adam learning rate
+    weight_decay  = 0.0,    # L2 regularization
+    grad_clip     = 1.0,    # gradient norm clipping (prevents explosion in rotor loop)
+    pos_weight    = None,   # positive class weight; auto-computed if None (= neg/pos ratio)
+    seed          = 42,
+    patience      = 0,      # early stopping patience (0 = disabled)
+    min_delta     = 1e-4,   # minimum val-loss improvement to reset patience counter
+    torque_lambda = 0.0,    # torque regularization weight λ·‖τ‖ (0 = disabled)
+    verbose       = False,
+    log_every     = 50,
 )
+```
+
+**Early stopping:** set `patience > 0` to stop when validation loss stops improving. The best model state is restored at the end.
+
+**Torque regularization:** `torque_lambda > 0` adds `λ · mean(‖τ‖)` to the loss, encouraging tighter geometric structure. Start with values in [0.01, 0.1].
+
+---
+
+## Directed Graphs
+
+For transaction graphs where edge direction carries meaning (e.g. sender → receiver), use `directed=True`. This switches to a random-walk Laplacian (`D_out⁻¹ A`) instead of the symmetric Laplacian, which improves AUC on directed domains.
+
+```python
+fw = HelixFramework(directed=True)
+fw.fit(X, edge_index, labels)
 ```
 
 ---
@@ -215,7 +275,7 @@ cfg = TrainConfig(
 ## Tests
 
 ```bash
-pytest                    # fast tests (44 tests, ~6s)
+pytest                    # fast tests (67 tests, ~25s)
 pytest -m slow            # includes full Validator probe (~60s)
 ```
 
@@ -234,14 +294,14 @@ helix/
 │   ├── core/
 │   │   ├── rotors.py      quaternion arithmetic in S³
 │   │   ├── chebyshev.py   Chebyshev spectral propagator
-│   │   ├── laplacian.py   sparse normalized Laplacian
+│   │   ├── laplacian.py   sparse Laplacian (symmetric + directed)
 │   │   └── graph.py       structural diagnostics
 │   ├── framework.py       HelixFramework — public API
 │   ├── validator.py       Graph Validator
-│   ├── trainer.py         unified training loop
-│   ├── nexus.py           NEXUS gravitational scorer
+│   ├── trainer.py         unified training loop + early stopping
+│   ├── nexus.py           NEXUS + SONAR scorers
 │   └── metrics.py         ρ, η, F1_geo, σ_seeds, ratio_τ
-├── tests/                 44 unit and integration tests
+├── tests/                 67 unit and integration tests
 ├── examples/
 │   ├── quick_start.py     synthetic data demo
 │   └── elliptic_demo.py   Bitcoin Elliptic demo
