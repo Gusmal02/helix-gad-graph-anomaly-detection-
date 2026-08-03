@@ -27,6 +27,9 @@ class TrainConfig:
     grad_clip: float = 1.0
     pos_weight: float | None = None   # auto-computed if None
     seed: int = 42
+    patience: int = 0
+    min_delta: float = 1e-4
+    torque_lambda: float = 0.0
     verbose: bool = False
     log_every: int = 50
 
@@ -87,18 +90,25 @@ def train(
     )
 
     y_tr_t = labels[train_idx]
+    y_val = labels[val_idx].numpy()
     loss_history = []
+
+    best_val_loss = float("inf")
+    best_state = None
+    wait = 0
+    use_patience = cfg.patience > 0
 
     for epoch in range(1, cfg.epochs + 1):
         model.train()
         optimizer.zero_grad()
 
         out = model(x, edge_index, edge_weight)
-        # HELIX returns (logits, q_final); others return logits directly
         logits = out[0] if isinstance(out, tuple) else out
         logits = logits.squeeze(-1)
 
         loss = criterion(logits[train_idx], y_tr_t)
+        if cfg.torque_lambda > 0 and hasattr(model, '_last_tau'):
+            loss = loss + cfg.torque_lambda * model._last_tau.norm(dim=-1).mean()
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
         optimizer.step()
@@ -107,13 +117,33 @@ def train(
         if cfg.verbose and epoch % cfg.log_every == 0:
             logger.info("  epoch %d/%d  loss=%.4f", epoch, cfg.epochs, loss.item())
 
+        if use_patience:
+            model.eval()
+            with torch.no_grad():
+                out_v = model(x, edge_index, edge_weight)
+                lg_v = out_v[0] if isinstance(out_v, tuple) else out_v
+                val_loss = criterion(lg_v.squeeze(-1)[val_idx],
+                                     labels[val_idx]).item()
+            if val_loss < best_val_loss - cfg.min_delta:
+                best_val_loss = val_loss
+                best_state = {k: v.clone() for k, v in model.state_dict().items()}
+                wait = 0
+            else:
+                wait += 1
+                if wait >= cfg.patience:
+                    if cfg.verbose:
+                        logger.info("  early stop at epoch %d", epoch)
+                    break
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
+
     model.eval()
     with torch.no_grad():
         out = model(x, edge_index, edge_weight)
         logits = out[0] if isinstance(out, tuple) else out
         scores = logits.squeeze(-1)[val_idx].numpy()
 
-    y_val = labels[val_idx].numpy()
     auc = float(roc_auc_score(y_val, scores))
 
     # Polarity guard: if model learned inverted signal, flip scores.
@@ -124,7 +154,7 @@ def train(
     else:
         model._polarity_flipped = False
 
-    return TrainResult(auc=auc, loss_history=loss_history, epochs_run=cfg.epochs)
+    return TrainResult(auc=auc, loss_history=loss_history, epochs_run=len(loss_history))
 
 
 def stratified_split(

@@ -79,6 +79,7 @@ def test_explain_shapes():
     assert result.rho.shape == (N,)
     assert result.eta.shape == (N,)
     assert result.geo_dist.shape == (N,)
+    assert result.torque.shape == (N,)
     assert result.q_final.shape == (N, 4)
     assert result.model_used == "HELIX"
 
@@ -169,3 +170,125 @@ def test_fit_returns_self():
     fw = HelixFramework()
     result = fw.fit(x, ei, y, model="MLP", cfg=_FAST_CFG)
     assert result is fw
+
+
+# ── sonar framework method ───────────────────────────────────────────────────
+
+def test_sonar_shapes_and_range():
+    N = 80
+    x, ei, y = make_dataset(N=N)
+    fw = HelixFramework()
+    fw.fit(x, ei, y, model="HELIX", cfg=_FAST_CFG)
+    scores = fw.sonar(x, ei, confirmed=[0, 5, 10])
+    assert scores.shape == (N,)
+    assert scores.min() >= 0.0
+    assert scores.max() <= 1.0 + 1e-6
+
+
+def test_sonar_auto_alpha():
+    x, ei, y = make_dataset()
+    fw = HelixFramework()
+    fw.fit(x, ei, y, model="HELIX", cfg=_FAST_CFG)
+    scores = fw.sonar(x, ei, confirmed=[1, 3], alpha='auto')
+    assert not np.isnan(scores).any()
+
+
+# ── save / load ──────────────────────────────────────────────────────────────
+
+def test_save_load_roundtrip(tmp_path):
+    x, ei, y = make_dataset()
+    fw = HelixFramework()
+    fw.fit(x, ei, y, model="HELIX", cfg=_FAST_CFG)
+    scores_before = fw.predict(x, ei)
+
+    path = tmp_path / "model.pt"
+    fw.save(path)
+    fw2 = HelixFramework.load(path)
+    scores_after = fw2.predict(x, ei)
+
+    np.testing.assert_allclose(scores_before, scores_after, atol=5e-3)
+
+
+def test_save_load_sage(tmp_path):
+    x, ei, y = make_dataset()
+    fw = HelixFramework()
+    fw.fit(x, ei, y, model="SAGE", cfg=_FAST_CFG)
+    scores_before = fw.predict(x, ei)
+
+    path = tmp_path / "sage.pt"
+    fw.save(path)
+    fw2 = HelixFramework.load(path)
+    scores_after = fw2.predict(x, ei)
+
+    np.testing.assert_allclose(scores_before, scores_after, atol=1e-6)
+    assert fw2._best_model_name == "SAGE"
+
+
+# ── auto PCA ─────────────────────────────────────────────────────────────────
+
+def test_auto_pca():
+    x, ei, y = make_dataset(D=20)
+    fw = HelixFramework()
+    fw.fit(x, ei, y, model="HELIX", cfg=_FAST_CFG, auto_pca=5)
+    assert fw._pca is True
+    scores = fw.predict(x, ei)
+    assert scores.shape == (x.shape[0],)
+    assert not np.isnan(scores).any()
+
+
+def test_auto_pca_save_load(tmp_path):
+    x, ei, y = make_dataset(D=20)
+    fw = HelixFramework()
+    fw.fit(x, ei, y, model="HELIX", cfg=_FAST_CFG, auto_pca=5)
+    scores_before = fw.predict(x, ei)
+
+    path = tmp_path / "pca.pt"
+    fw.save(path)
+    fw2 = HelixFramework.load(path)
+    scores_after = fw2.predict(x, ei)
+
+    np.testing.assert_allclose(scores_before, scores_after, atol=1e-3)
+
+
+# ── early stopping ───────────────────────────────────────────────────────────
+
+def test_early_stopping():
+    x, ei, y = make_dataset()
+    cfg = TrainConfig(epochs=200, patience=3)
+    fw = HelixFramework()
+    fw.fit(x, ei, y, model="HELIX", cfg=cfg)
+    scores = fw.predict(x, ei)
+    assert not np.isnan(scores).any()
+
+
+# ── directed ─────────────────────────────────────────────────────────────────
+
+def test_directed_framework():
+    x, ei, y = make_dataset()
+    fw = HelixFramework(directed=True)
+    fw.fit(x, ei, y, model="HELIX", cfg=_FAST_CFG)
+    scores = fw.predict(x, ei)
+    assert scores.shape == (x.shape[0],)
+    assert not np.isnan(scores).any()
+
+
+# ── torque in explain ────────────────────────────────────────────────────────
+
+def test_torque_in_explain():
+    x, ei, y = make_dataset()
+    fw = HelixFramework()
+    fw.fit(x, ei, y, model="HELIX", cfg=_FAST_CFG)
+    result = fw.explain(x, ei)
+    assert result.torque.shape == (x.shape[0],)
+    assert (result.torque >= 0).all()
+
+
+# ── torque lambda ────────────────────────────────────────────────────────────
+
+def test_torque_lambda():
+    x, ei, y = make_dataset()
+    cfg = TrainConfig(epochs=5, torque_lambda=0.1)
+    fw = HelixFramework()
+    fw.fit(x, ei, y, model="HELIX", cfg=cfg)
+    scores = fw.predict(x, ei)
+    assert not np.isnan(scores).any()
