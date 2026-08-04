@@ -251,7 +251,8 @@ cfg = TrainConfig(
     seed          = 42,
     patience      = 0,      # early stopping patience (0 = disabled)
     min_delta     = 1e-4,   # minimum val-loss improvement to reset patience counter
-    torque_lambda = 0.0,    # torque regularization weight λ·‖τ‖ (0 = disabled)
+    torque_lambda    = 0.0,    # torque regularization weight λ·‖τ‖ (0 = disabled)
+    centroid_lambda  = 0.0,    # centroid repulsion: penalizes |<c_fraud, c_normal>|² in S³
     verbose       = False,
     log_every     = 50,
 )
@@ -260,6 +261,8 @@ cfg = TrainConfig(
 **Early stopping:** set `patience > 0` to stop when validation loss stops improving. The best model state is restored at the end.
 
 **Torque regularization:** `torque_lambda > 0` adds `λ · mean(‖τ‖)` to the loss, encouraging tighter geometric structure. Start with values in [0.01, 0.1].
+
+**Centroid repulsion:** `centroid_lambda > 0` penalizes the squared inner product between the mean quaternion of fraud nodes and normal nodes in S³, pushing class centroids toward orthogonality (90° apart). Only active for HELIX; silently ignored for SAGE/GCN/MLP. Start with values in [0.05, 0.2].
 
 ---
 

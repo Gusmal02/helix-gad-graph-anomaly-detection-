@@ -30,6 +30,7 @@ class TrainConfig:
     patience: int = 0
     min_delta: float = 1e-4
     torque_lambda: float = 0.0
+    centroid_lambda: float = 0.0
     verbose: bool = False
     log_every: int = 50
 
@@ -39,6 +40,33 @@ class TrainResult:
     auc: float
     loss_history: list[float] = field(default_factory=list)
     epochs_run: int = 0
+
+
+def _centroid_repulsion(q: torch.Tensor, labels_train: torch.Tensor) -> torch.Tensor:
+    """
+    Centroid repulsion loss in S³.
+
+    Computes the mean quaternion for fraud (label=1) and normal (label=0) nodes
+    in the training batch, normalizes both to unit norm, then penalizes their
+    inner product squared — pushing them toward orthogonality (90° apart in S³).
+
+    L_repulsion = |<c_fraud, c_normal>|²
+
+    Minimum = 0 when centroids are orthogonal (ideal separation).
+    Maximum = 1 when centroids coincide (full collapse).
+    """
+    fraud_mask  = labels_train == 1
+    normal_mask = labels_train == 0
+    if fraud_mask.sum() == 0 or normal_mask.sum() == 0:
+        return torch.tensor(0.0, device=q.device)
+
+    c_fraud  = q[fraud_mask].mean(dim=0)
+    c_normal = q[normal_mask].mean(dim=0)
+
+    c_fraud  = c_fraud  / (c_fraud.norm()  + 1e-8)
+    c_normal = c_normal / (c_normal.norm() + 1e-8)
+
+    return (c_fraud @ c_normal) ** 2
 
 
 def _pos_weight(y_train: np.ndarray) -> float:
@@ -109,6 +137,11 @@ def train(
         loss = criterion(logits[train_idx], y_tr_t)
         if cfg.torque_lambda > 0 and hasattr(model, '_last_tau'):
             loss = loss + cfg.torque_lambda * model._last_tau.norm(dim=-1).mean()
+        if cfg.centroid_lambda > 0 and isinstance(out, tuple):
+            q_final = out[1]
+            loss = loss + cfg.centroid_lambda * _centroid_repulsion(
+                q_final[train_idx], y_tr_t
+            )
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
         optimizer.step()

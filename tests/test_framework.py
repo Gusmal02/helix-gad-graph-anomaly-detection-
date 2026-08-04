@@ -292,3 +292,24 @@ def test_torque_lambda():
     fw.fit(x, ei, y, model="HELIX", cfg=cfg)
     scores = fw.predict(x, ei)
     assert not np.isnan(scores).any()
+
+
+# ── centroid repulsion ───────────────────────────────────────────────────────
+
+def test_centroid_lambda():
+    x, ei, y = make_dataset()
+    cfg = TrainConfig(epochs=5, centroid_lambda=0.1)
+    fw = HelixFramework()
+    fw.fit(x, ei, y, model="HELIX", cfg=cfg)
+    scores = fw.predict(x, ei)
+    assert not np.isnan(scores).any()
+
+
+def test_centroid_lambda_sage_noop():
+    """centroid_lambda silently ignored for non-HELIX models (no q_final)."""
+    x, ei, y = make_dataset()
+    cfg = TrainConfig(epochs=5, centroid_lambda=0.5)
+    fw = HelixFramework()
+    fw.fit(x, ei, y, model="SAGE", cfg=cfg)
+    scores = fw.predict(x, ei)
+    assert not np.isnan(scores).any()

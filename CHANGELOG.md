@@ -53,8 +53,15 @@ Registro de cambios significativos por sesión de desarrollo.
 - Calibra automáticamente α = 1 / mediana(dist_geo(semillas, todos)).
 - Recomendado cuando se desconoce la dispersión típica del grafo en S³.
 
+**Centroid Repulsion en S³ — `centroid_lambda` en `TrainConfig`**
+- Penaliza `|⟨c_fraud, c_normal⟩|²` — producto interno al cuadrado entre el cuaternión medio de nodos fraude y nodos normales del batch.
+- Empuja los centroides de clase hacia ortogonalidad en S³ (90° de separación = pérdida = 0).
+- Costo computacional: dos promedios + un producto escalar por batch — prácticamente gratis.
+- Solo activo para HELIX (requiere `q_final`); ignorado silenciosamente para SAGE/GCN/MLP.
+- Inspirado en la regularización de ortogonalización de centroides (C^H C = I) adaptada a K=2 clases en S³.
+
 ### Tests
-- Suite ampliada de 57 → 67 tests.
+- Suite ampliada de 57 → 69 tests.
 - Nuevos grupos: `sonar` framework, `save/load` (HELIX y SAGE), `auto_pca`, early stopping, `directed`, `torque`, `torque_lambda`, `spectral_norm`.
 
 ### Documentación
