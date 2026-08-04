@@ -274,6 +274,18 @@ fw.fit(X, edge_index, labels)
 
 ---
 
+## Spectral Normalization
+
+`ChebyshevFNO` wraps each per-channel filter with `torch.nn.utils.spectral_norm`, bounding its Lipschitz constant to ≤ 1 by dividing weights by their largest singular value on every forward pass. This prevents eigenvalue explosion in the Chebyshev coefficients and frequency collapse in domains where the graph topology is noisy or heterophilic — at zero runtime overhead.
+
+Enabled by default. Disable only for ablation studies:
+
+```python
+fw = HelixFramework(spectral_norm=False)   # ablation only
+```
+
+---
+
 ## Tests
 
 ```bash
