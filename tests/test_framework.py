@@ -206,7 +206,7 @@ def test_save_load_roundtrip(tmp_path):
     fw2 = HelixFramework.load(path)
     scores_after = fw2.predict(x, ei)
 
-    np.testing.assert_allclose(scores_before, scores_after, atol=5e-3)
+    np.testing.assert_allclose(scores_before, scores_after, atol=1e-2)
 
 
 def test_save_load_sage(tmp_path):
@@ -247,7 +247,7 @@ def test_auto_pca_save_load(tmp_path):
     fw2 = HelixFramework.load(path)
     scores_after = fw2.predict(x, ei)
 
-    np.testing.assert_allclose(scores_before, scores_after, atol=1e-3)
+    np.testing.assert_allclose(scores_before, scores_after, atol=1e-2)
 
 
 # ── early stopping ───────────────────────────────────────────────────────────

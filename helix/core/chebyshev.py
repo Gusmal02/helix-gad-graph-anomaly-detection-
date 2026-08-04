@@ -37,20 +37,38 @@ class ChebyshevFNO(nn.Module):
     the model learns to down-weight neighbour signals when they add noise.
     """
 
-    def __init__(self, order: int = 4, num_channels: int = 3, residual_mix: bool = True):
+    def __init__(self, order: int = 4, num_channels: int = 3, residual_mix: bool = True,
+                 spectral_norm: bool = True):
         super().__init__()
         self.order = order
         self.num_channels = num_channels
         self.residual_mix = residual_mix
-        self.thetas = nn.Parameter(torch.randn(order + 1, num_channels) * 0.1)
+        self.use_spectral_norm = spectral_norm
+
+        # One linear projection per channel: maps K+1 Chebyshev coefficients → 1 scalar weight.
+        # spectral_norm wraps each Linear so its largest singular value stays ≤ 1,
+        # bounding the Lipschitz constant of every filter and preventing eigenvalue explosion.
+        _make = lambda: nn.Linear(order + 1, 1, bias=False)
+        if spectral_norm:
+            self.filter_projs = nn.ModuleList([
+                nn.utils.spectral_norm(_make()) for _ in range(num_channels)
+            ])
+        else:
+            self.filter_projs = nn.ModuleList([_make() for _ in range(num_channels)])
+            # initialise close to identity-like behaviour
+            for proj in self.filter_projs:
+                nn.init.normal_(proj.weight, std=0.1)
+
         if residual_mix:
-            # initialise near 0.9 so sparse-graph behaviour is preserved by default
             self.alpha_logit = nn.Parameter(torch.tensor(2.2))
 
     def forward(self, x: torch.Tensor, L_tilde: torch.Tensor) -> torch.Tensor:
         """x: (N, 3), L_tilde: sparse scaled Laplacian. Returns (N, 3)."""
+        # Build per-channel theta vectors from (spectrally-normalized) linear projections.
+        # proj.weight shape: (1, K+1) → squeeze to (K+1,) for chebyshev_propagate.
         propagated = torch.cat([
-            chebyshev_propagate(L_tilde, x[:, c:c+1], self.thetas[:, c])
+            chebyshev_propagate(L_tilde, x[:, c:c+1],
+                                self.filter_projs[c].weight.squeeze(0))
             for c in range(self.num_channels)
         ], dim=-1)
         if self.residual_mix:

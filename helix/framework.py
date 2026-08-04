@@ -77,12 +77,14 @@ class HelixFramework:
         helix_t: int = 5,
         gnn_hidden: int = 64,
         directed: bool = False,
+        spectral_norm: bool = True,
     ):
         self.helix_hidden = helix_hidden
         self.helix_k = helix_k
         self.helix_t = helix_t
         self.gnn_hidden = gnn_hidden
         self.directed = directed
+        self.spectral_norm = spectral_norm
 
         self._helix_model: HelixModel | None = None
         self._best_model = None
@@ -157,7 +159,7 @@ class HelixFramework:
         # ── Always train HELIX (needed for explain() and nexus()) ────────────
         helix = HelixModel(D, hidden=self.helix_hidden,
                            cheb_k=self.helix_k, t_steps=self.helix_t,
-                           directed=self.directed)
+                           directed=self.directed, spectral_norm=self.spectral_norm)
         helix_result = train(helix, X_t, ei_t, y_t, tr_idx, va_idx, cfg, ew_t)
         self._helix_model = helix
         logger.info("HELIX trained — val AUC: %.4f", helix_result.auc)
@@ -371,6 +373,7 @@ class HelixFramework:
                 "helix_t": self.helix_t,
                 "gnn_hidden": self.gnn_hidden,
                 "directed": self.directed,
+                "spectral_norm": self.spectral_norm,
             },
             "validation_report": asdict(self._validation_report) if self._validation_report else None,
             "helix_polarity": getattr(self._helix_model, '_polarity_flipped', False),
@@ -390,7 +393,8 @@ class HelixFramework:
         h = ck["hyper"]
         fw = cls(helix_hidden=h["helix_hidden"], helix_k=h["helix_k"],
                  helix_t=h["helix_t"], gnn_hidden=h["gnn_hidden"],
-                 directed=h.get("directed", False))
+                 directed=h.get("directed", False),
+                 spectral_norm=h.get("spectral_norm", True))
         fw._in_dim = ck["in_dim"]
 
         if "pca_components" in ck:
@@ -401,7 +405,8 @@ class HelixFramework:
         D = fw._pca_components.shape[0] if fw._pca and fw._pca_components is not None else fw._in_dim
         fw._helix_model = HelixModel(D, hidden=h["helix_hidden"],
                                      cheb_k=h["helix_k"], t_steps=h["helix_t"],
-                                     directed=h.get("directed", False))
+                                     directed=h.get("directed", False),
+                                     spectral_norm=h.get("spectral_norm", True))
         fw._helix_model.load_state_dict(ck["helix_state"])
         fw._helix_model._polarity_flipped = ck.get("helix_polarity", False)
 
