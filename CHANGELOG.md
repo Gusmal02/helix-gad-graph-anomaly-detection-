@@ -6,20 +6,23 @@ Registro de cambios significativos por sesión de desarrollo.
 
 ## [0.2.1] — 2026-08-07
 
-### Nuevas funcionalidades
-
-**`omega_net` — frecuencia de precesión por nodo (learnable)**
-- `RotorStep` ahora acepta un vector `omega (N,)` por nodo como override del escalar global.
-- `HelixModel` añade `omega_net = Linear(in_dim, 1)` junto a `eta_net`, produciendo `ω_i ∈ [0, 0.5]` por nodo vía `sigmoid * 0.5`.
-- Cada nodo tiene su propia frecuencia de drift libre en S³, complementando el acoplamiento `η_i` ya existente.
-- Retrocompatible: `RotorStep.forward(omega=None)` cae al escalar global original.
+### Cambios
 
 **`_train_result` en `HelixFramework`**
 - `fw._train_result` expone el `TrainResult` de HELIX (AUC, epochs_run, loss_history) tras `fit()`.
 
-### Tests
-- Suite ampliada de 69 → 71 tests.
-- Nuevos: `test_omega_per_node`, `test_omega_per_node_no_nan_in_forward`.
+### Experimentos (Diag#73)
+
+Ablación de regularizadores en Elliptic Bitcoin (203k nodos, 468k aristas).
+
+| Hipótesis | Resultado |
+|-----------|-----------|
+| `omega_net` per-nodo | **Descartado.** AUC cayó de 0.9624 → 0.8453 (-12pp). Desestabiliza el rotor loop en grafos grandes. |
+| `spectral_norm=False` | 0.8897 vs 0.8453 — mejor sin SN cuando la geometría está perturbada, pero ambos por debajo del baseline. |
+| `torque_lambda` sweep 0.01→0.20 | Mejora monotónica (0.8596→0.8707) pero no supera el threshold +0.3pp. Ningún λ accionable. |
+| `centroid_lambda` sweep 0.05→0.50 | Neutral en valores bajos; destructivo en λ=0.50 (AUC=0.8121). |
+
+**Conclusión:** ningún regularizador mejora el baseline 0.9624 en Elliptic. Los defaults actuales son óptimos para este dominio. `omega_net` revertido del modelo (Diag#47-análogo: hipótesis refutada por datos).
 
 ---
 

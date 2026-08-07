@@ -68,22 +68,11 @@ class RotorStep(nn.Module):
     def axis(self) -> torch.Tensor:
         return self.axis_raw / (self.axis_raw.norm() + 1e-8)
 
-    def forward(
-        self,
-        q: torch.Tensor,
-        tau: torch.Tensor,
-        eta: torch.Tensor,
-        omega: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+    def forward(self, q: torch.Tensor,
+                tau: torch.Tensor, eta: torch.Tensor) -> torch.Tensor:
         N = q.shape[0]
-        eff_omega = omega if omega is not None else self.omega
-        if isinstance(eff_omega, torch.Tensor) and eff_omega.dim() == 1:
-            # per-node: (N,) → (N, 3)
-            angle_axis = (eff_omega.unsqueeze(-1) * self.dt / 2) * self.axis.unsqueeze(0)
-        else:
-            # global scalar
-            angle_axis = (eff_omega * self.dt / 2) * self.axis.unsqueeze(0).expand(N, -1)
-        delta_q = quat_exp(angle_axis)
+        angle_axis = (self.omega * self.dt / 2) * self.axis
+        delta_q = quat_exp(angle_axis.unsqueeze(0).expand(N, -1))
         q_free = quat_normalize(quat_mul(delta_q, q))
 
         tau_norm = tau.norm(dim=-1, keepdim=True).clamp(min=1e-8)
