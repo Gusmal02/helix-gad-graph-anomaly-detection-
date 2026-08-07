@@ -162,6 +162,7 @@ class HelixFramework:
                            directed=self.directed, spectral_norm=self.spectral_norm)
         helix_result = train(helix, X_t, ei_t, y_t, tr_idx, va_idx, cfg, ew_t)
         self._helix_model = helix
+        self._train_result = helix_result
         logger.info("HELIX trained — val AUC: %.4f", helix_result.auc)
 
         # ── Train winning model if different from HELIX ──────────────────────

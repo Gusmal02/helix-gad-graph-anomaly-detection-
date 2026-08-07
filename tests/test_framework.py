@@ -313,3 +313,33 @@ def test_centroid_lambda_sage_noop():
     fw.fit(x, ei, y, model="SAGE", cfg=cfg)
     scores = fw.predict(x, ei)
     assert not np.isnan(scores).any()
+
+
+# ── per-node omega ───────────────────────────────────────────────────────────
+
+def test_omega_per_node():
+    """omega_net produces distinct per-node precession frequencies (not all equal)."""
+    import torch
+    from helix.models.helix import HelixModel
+
+    x, ei, y = make_dataset()
+    x_t  = torch.tensor(x)
+    ei_t = torch.tensor(ei)
+
+    model = HelixModel(in_dim=x.shape[1])
+    with torch.no_grad():
+        omega = torch.sigmoid(model.omega_net(x_t).squeeze(-1)) * 0.5
+    assert omega.shape == (x.shape[0],)
+    assert not torch.isnan(omega).any()
+    # After random init, not all values should be identical
+    assert omega.std() > 1e-4
+
+
+def test_omega_per_node_no_nan_in_forward():
+    x, ei, y = make_dataset()
+    fw = HelixFramework()
+    fw.fit(x, ei, y, model="HELIX", cfg=_FAST_CFG)
+    scores = fw.predict(x, ei)
+    assert not np.isnan(scores).any()
+    result = fw.explain(x, ei)
+    assert result.torque.shape == (x.shape[0],)

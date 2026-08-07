@@ -4,6 +4,25 @@ Registro de cambios significativos por sesión de desarrollo.
 
 ---
 
+## [0.2.1] — 2026-08-07
+
+### Nuevas funcionalidades
+
+**`omega_net` — frecuencia de precesión por nodo (learnable)**
+- `RotorStep` ahora acepta un vector `omega (N,)` por nodo como override del escalar global.
+- `HelixModel` añade `omega_net = Linear(in_dim, 1)` junto a `eta_net`, produciendo `ω_i ∈ [0, 0.5]` por nodo vía `sigmoid * 0.5`.
+- Cada nodo tiene su propia frecuencia de drift libre en S³, complementando el acoplamiento `η_i` ya existente.
+- Retrocompatible: `RotorStep.forward(omega=None)` cae al escalar global original.
+
+**`_train_result` en `HelixFramework`**
+- `fw._train_result` expone el `TrainResult` de HELIX (AUC, epochs_run, loss_history) tras `fit()`.
+
+### Tests
+- Suite ampliada de 69 → 71 tests.
+- Nuevos: `test_omega_per_node`, `test_omega_per_node_no_nan_in_forward`.
+
+---
+
 ## [0.2.0] — 2026-08-03
 
 ### Nuevas funcionalidades
